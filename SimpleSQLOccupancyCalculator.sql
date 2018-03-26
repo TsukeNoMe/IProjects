@@ -1,5 +1,6 @@
 CREATE TYPE KeyValue AS TABLE (
-	ColumnName VARCHAR(100)
+	Id int identity(1,1)
+	,ColumnName VARCHAR(100)
 	,ColumnValue NVARCHAR(MAX)
 	)
 
@@ -9,25 +10,34 @@ CREATE PROCEDURE CalculateOccupancy @DatabaseName VARCHAR(100)
 	,@TableName VARCHAR(100)
 	,@SearchString KeyValue READONLY
 AS
+
+
 DECLARE @SQLString NVARCHAR(MAX)
 
 IF @DatabaseName IS NOT NULL
 	AND LEN(@DatabaseName) > 0
 BEGIN
 	SET @SQLString = '
-	Use ' + @DatabaseName + '
-	Select  * into ##OccupancyCalculation from 
-	'
-END
-ELSE
-BEGIN
-	SET @SQLString = 'Select  * into ##OccupancyCalculation from '
+	Use ' + @DatabaseName + ' ;'
 END
 
+IF (Select Count(*) From @SearchString) = 0
+BEGIN
+
+	SET @SQLString += 'exec sp_spaceused ''' + @TableName + ''''
+	EXEC(@SQLString)
+	RETURN;
+
+END
+
+
 IF @TableName IS NOT NULL
-	AND LEN(@TableName) > 0
+	AND LEN(@TableName) > 0 
 BEGIN
 	BEGIN TRY
+	
+		SET @SQLString += ' Select  * into ##OccupancyCalculation from '
+	
 		SET @SQLString += @TableName
 
 		IF (
@@ -37,34 +47,37 @@ BEGIN
 		BEGIN
 			SET @SQLString += ' where '
 
-			DECLARE @Column VARCHAR(100)
-				,@Value NVARCHAR(MAX)
-
-			DECLARE KP CURSOR
-			FOR
-			SELECT *
-			FROM @SearchString
-
-			OPEN KP
-
-			FETCH NEXT
-			FROM KP
-			INTO @Column
-				,@Value
-
-			WHILE @@FETCH_STATUS = 0
+			DECLARE @Loop int = 1, @MaxValue int = (Select count(*) From @SearchString)
+			
+			WHILE (@Loop <= @MaxValue)
 			BEGIN
-				SET @SQLString += @Column + ' = ''' + @Value + ''' '
-
-				FETCH NEXT
-				FROM KP
-				INTO @Column
-					,@Value
+			
+				
+				DECLARE @Column VARCHAR(100)
+					,@Value NVARCHAR(MAX)
+				
+				Select @Column = ColumnName, @Value = ColumnValue From @SearchString
+				where Id = @Loop
+				
+				IF(@Loop = 1)
+				BEGIN
+					
+					SET @SQLString += @Column + ' = ''' + @Value + ''' '
+				
+				END
+				ELSE
+				BEGIN
+				
+					SET @SQLString += ' and ' + @Column + ' = ''' + @Value + ''' '
+				
+				END
+			
+				SET @Loop += 1
+			
 			END
+			
 
-			CLOSE KP
-
-			DEALLOCATE KP
+			
 		END
 
 		PRINT @SQLString
